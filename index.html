@@ -39,6 +39,7 @@
     <label class="zoom">zoom
       <input id="zoom" type="range" min="20" max="80" value="40" />
     </label>
+    <button id="fullscreen" class="collapsebtn" title="Toggle full screen">⛶&#xFE0E;</button>
     <button id="barcollapse" class="collapsebtn" title="Hide the top bar">▲&#xFE0E;</button>
   </header>
 
@@ -170,6 +171,28 @@
       wire("barexpand", "bar-collapsed", false);
       wire("transportcollapse", "transport-collapsed", true);
       wire("transportexpand", "transport-collapsed", false);
+    })();
+  </script>
+
+  <!-- full-screen: manual toggle + auto-enter on first tap when launched as an installed app -->
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var enterFn = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+      var exitFn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+      var btn = document.getElementById("fullscreen");
+      if (!enterFn) { if (btn) btn.style.display = "none"; return; } // e.g. iPhone: home-screen app is already chromeless
+      function isFs() { return document.fullscreenElement || document.webkitFullscreenElement; }
+      function enter() { try { var p = enterFn.call(root); if (p && p.catch) p.catch(function () {}); } catch (e) {} }
+      function exit() { try { exitFn && exitFn.call(document); } catch (e) {} }
+      if (btn) btn.addEventListener("click", function () { isFs() ? exit() : enter(); });
+      var asApp = matchMedia("(display-mode: standalone)").matches ||
+                  matchMedia("(display-mode: fullscreen)").matches ||
+                  navigator.standalone === true;
+      if (asApp) {
+        var once = function () { window.removeEventListener("pointerdown", once); enter(); };
+        window.addEventListener("pointerdown", once, { once: true });
+      }
     })();
   </script>
   <script src="app.js?v=36" defer></script>

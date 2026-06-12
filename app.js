@@ -474,7 +474,10 @@ function detectBassEntries() {
   const topMeasures = topPart ? [...topPart.children].filter((c) => c.tagName === "measure") : [];
   let li = 0;
   for (let i = 0; i < sings.length; i++) {
-    if (!sings[i] || (i !== 0 && sings[i - 1])) continue;   // entry = sings now, rested the whole previous bar
+    if (!sings[i] || (i !== 0 && sings[i - 1])) continue;   // sings now, didn't sing the previous bar
+    let rest = 0, j = i - 1;
+    while (j >= 0 && !sings[j]) { rest++; j--; }
+    if (rest <= 6) continue;                                // only a letter after MORE THAN six empty bass bars
     const letter = bassLetter(li++);
     out.push({ idx: i, num: measures[i].getAttribute("number"), letter });
     if (topMeasures[i]) injectRehearsal(topMeasures[i], letter);

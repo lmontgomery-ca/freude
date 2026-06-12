@@ -54,7 +54,6 @@ let parts = [];           // [{id, name, role, voices[]}]
 let lanes = [];           // user-facing toggles [{id,label,partId,voice|null}]
 let selected = new Set(); // lane ids currently shown/played
 let raf = 0;
-let currentPage = 1;
 let pageCount = 1;
 let totalMeasures = 0;
 let firstVocalMeasure = 0;
@@ -65,7 +64,6 @@ let practiceBytes = null, usePractice = false;
 // sync.json is in EXPANDED playback order (the repeat is played out with 1st/2nd endings):
 let syncTimes = [], syncPrinted = [], syncTotal = 0;  // per expanded step: start seconds + PRINTED measure index
 let printedCount = 0;
-let measureIds = [], measurePages = [];     // measureIds[i] = Verovio measure id (PRINTED i); measurePages[i] = {id,page}
 
 // TEMPO: tempoRate = slider target; appliedRate = rate currently baked into the playing MIDI.
 // The player's clock runs in REAL seconds at appliedRate; sync.json/cues are in MUSICAL seconds.
@@ -401,18 +399,6 @@ async function loadSync() {
     return syncTimes.length > 0;
   } catch (e) { return false; }
 }
-/* measure id list (linear, from MEI) + per-measure page (layout-dependent, rebuilt on relayout) */
-function rebuildMeasureMap() {
-  try {
-    if (!measureIds.length) {
-      const mei = tk.getMEI({});
-      measureIds = [...mei.matchAll(/<measure\b[^>]*?xml:id="([^"]+)"/g)].map((x) => x[1]);
-      if (printedCount && measureIds.length !== printedCount)
-        console.warn("printed measure count mismatch: MEI=" + measureIds.length + " sync=" + printedCount);
-    }
-    measurePages = measureIds.map((id) => ({ id, page: tk.getPageWithElement(id) }));
-  } catch (e) { console.warn("measure map failed", e); measurePages = []; }
-}
 function currentMeasureAt(t) {       // largest measure whose start time <= t
   let lo = 0, hi = syncTimes.length - 1, ans = 0;
   while (lo <= hi) { const mid = (lo + hi) >> 1; if (syncTimes[mid] <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
@@ -480,16 +466,11 @@ function updateCurrentSection(printedIdx) {
 }
 function jumpToSection(i) {
   const s = sections[i]; if (!s) return;
-  const mp = measurePages[s.idx];
-  if (mp && mp.page > 0) {
-    renderPage(mp.page);
-    const n = document.getElementById(mp.id); if (n) boxOverMeasure(n);
-  } else { renderPage(pageForMeasureFraction(s.idx)); }
+  boxBar(s.idx); scrollToBar(s.idx, true);
   if (usePractice && syncPrinted.length) {           // cue the playhead to where this bar first plays
     const e = syncPrinted.indexOf(s.idx);
     if (e >= 0) {
-      const midi = el("midi");
-      try { midi.currentTime = toReal(syncTimes[e]); } catch (_) {}
+      try { el("midi").currentTime = toReal(syncTimes[e]); } catch (_) {}
       cueTime = isPlaying ? null : syncTimes[e];      // musical seconds; remembered for the next Play
     }
   }
@@ -503,9 +484,8 @@ function printedForMusical(origSec) {
   const e = currentMeasureAt(Math.max(0, origSec));
   return syncPrinted[Math.min(syncPrinted.length - 1, Math.max(0, e))];
 }
-function showPrinted(printed) {     // render the page holding this printed bar, box it, reflect the section
-  const mp = measurePages[printed];
-  if (mp && mp.page > 0) { renderPage(mp.page); const n = document.getElementById(mp.id); if (n) boxOverMeasure(n); }
+function showPrinted(printed) {     // box this printed bar, glide the view to it, reflect the section
+  boxBar(printed); scrollToBar(printed, true);
   updateCurrentSection(printed);
 }
 function seekMusical(origSec) {     // move the playhead AND the view to a musical time
@@ -526,7 +506,7 @@ function sectionStartMusical(i) {
   return e >= 0 ? syncTimes[e] : 0;
 }
 function stepBar(delta) {                 // move the playhead one bar back/forward
-  if (!syncTimes.length) { renderPage(currentPage + delta); return; }   // no sync map -> page step fallback
+  if (!syncTimes.length) { browseBar(delta); return; }   // no sync map -> manual bar step
   const now = nowMusical();
   let e = Math.min(syncTimes.length - 1, Math.max(0, currentMeasureAt(now)));
   if (delta < 0) e = (now - syncTimes[e] > 0.25) ? e : Math.max(0, e - 1);   // back: snap to this bar's start, else prev bar
@@ -555,102 +535,162 @@ function renderOptions() {
   };
 }
 
-/* ===== paged "set of bars": one system fills the screen; a tall box highlights the current bar ===== */
+/* ===== continuous virtualized strip: the whole piece is one horizontal ribbon ===== */
 let isPlaying = false;
-const pageSvgCache = new Map();   // page -> rendered SVG string (avoids re-rendering on nav/page-turn)
-let renderedScale = 40;           // zoom Verovio last actually rendered at (for instant CSS-scale preview)
+const pageSvgCache = new Map();   // page (system) -> rendered SVG string
+let renderedScale = 40;
 let dimPiano = false;             // fade the piano staves (+ their markings) so the voices stand out
 let dimSolo = false;              // fade the soloist staves
-let sysBoxTop = 0, sysBoxH = 0;   // vertical extent of the staves on the current set (for the box)
-let maxAboveU = 0, maxBlockU = 0, maxBelowU = 0, measuredLayout = false;  // max system metrics (units)
-const FRAME_PAD = 16;             // breathing room above the highest content and below the lowest
+let maxAboveU = 0, maxBlockU = 0, maxBelowU = 0, measuredLayout = false;  // scale-independent system metrics
+const FRAME_PAD = 16;
 
-/* size pageWidth so one system fills the viewport width at the current zoom */
+let systems = [];          // per system: {svg, x, w, mounted}
+let measureX = [];         // printed bar index -> {x, w} in strip coordinates (staff-line union)
+const measureIdToIndex = new Map();   // Verovio measure id -> printed bar index (for the demo follow)
+let stripW = 0, frameH = 0, anchorY = 0, blockH = 0;
+let boxedBar = -1;
+const MOUNT_PAD = 1000;    // px beyond the viewport to keep systems mounted
+const READ_FRAC = 0.30;    // where the current bar / playhead sits across the viewport
+
+/* make each system ~1.6 screens wide: fewer clef/key restatements, still light to mount */
 function renderOptionsPaged() {
   const o = renderOptions();
   const wrapW = el("ribbon-wrap").clientWidth || 1200;
-  o.pageWidth = Math.round((wrapW - 60) * 100 / o.scale);   // SVG width ≈ pageWidth*scale/100 ≈ viewport
+  o.pageWidth = Math.round((wrapW * 1.6 - 40) * 100 / o.scale);
   return o;
 }
 
-/* Measure ONCE the MAX vertical space the system needs: above the top staff (dynamics, tempo,
- * rehearsal letters), the staff block itself, and below the bottom staff (ledgers, text). Then
- * size every set's frame to that maximum and TOP-ANCHOR the staff block to a fixed Y. Combined
- * with staff spacing high enough to reserve lyric room, every set has identical staff positions. */
-function applyUniformHeight() {
+/* Render every system once into an off-screen scratch, measuring (a) the uniform vertical metrics
+ * so all staves line up, (b) each system's width, (c) each bar's x-extent (staff-line union).
+ * Then lay the systems end-to-end in #ribbon, build measureX, and mount the visible ones. */
+function buildStrip() {
+  note("laying out the ribbon…", true);
   const scale = parseInt(el("zoom").value, 10);
-  if (!measuredLayout) {
-    note("measuring layout…", true);
-    const stage = document.createElement("div");   // throwaway off-screen scratch (keep #ribbon/#box intact)
-    stage.style.cssText = "position:absolute;left:-99999px;top:0;visibility:hidden";
-    document.body.appendChild(stage);
-    for (let p = 1; p <= pageCount; p++) {
-      const svgStr = tk.renderToSVG(p);
-      pageSvgCache.set(p, svgStr);                 // these renders double as the display cache (instant nav)
-      stage.innerHTML = svgStr;
-      const svg = stage.querySelector("svg"); if (!svg) continue;
-      const sr = svg.getBoundingClientRect();
+  const stage = document.createElement("div");
+  stage.style.cssText = "position:absolute;left:-99999px;top:0;visibility:hidden";
+  document.body.appendChild(stage);
+  if (!measuredLayout) { maxAboveU = maxBlockU = maxBelowU = 0; }
+  pageSvgCache.clear();
+  const pageW = [], pageBars = [];
+  for (let p = 1; p <= pageCount; p++) {
+    const svgStr = tk.renderToSVG(p); pageSvgCache.set(p, svgStr);
+    stage.innerHTML = svgStr;
+    const svg = stage.querySelector("svg");
+    if (!svg) { pageW.push(0); pageBars.push([]); continue; }
+    const sr = svg.getBoundingClientRect();
+    pageW.push(sr.width);
+    if (!measuredLayout) {
       const six = [...svg.querySelectorAll(".staff")].slice(0, 6).map((s) => s.getBoundingClientRect());
-      if (six.length < 6) continue;
-      maxAboveU = Math.max(maxAboveU, six[0].top - sr.top);
-      maxBlockU = Math.max(maxBlockU, six[5].bottom - six[0].top);
-      maxBelowU = Math.max(maxBelowU, sr.bottom - six[5].bottom);
+      if (six.length >= 6) {
+        maxAboveU = Math.max(maxAboveU, six[0].top - sr.top);
+        maxBlockU = Math.max(maxBlockU, six[5].bottom - six[0].top);
+        maxBelowU = Math.max(maxBelowU, sr.bottom - six[5].bottom);
+      }
     }
-    stage.remove();
-    const f = 100 / scale;                 // px -> scale-independent units
-    maxAboveU *= f; maxBlockU *= f; maxBelowU *= f;
-    measuredLayout = true;
+    const bars = [];
+    svg.querySelectorAll(".measure").forEach((mEl) => {
+      let l = Infinity, r = -Infinity;
+      mEl.querySelectorAll(".staff").forEach((s) => { const b = s.getBoundingClientRect(); if (b.width > 4) { l = Math.min(l, b.left); r = Math.max(r, b.right); } });
+      if (l === Infinity) { const b = mEl.getBoundingClientRect(); l = b.left; r = b.right; }
+      bars.push({ id: mEl.id, l: l - sr.left, r: r - sr.left });
+    });
+    pageBars.push(bars);
   }
+  stage.remove();
+  if (!measuredLayout) { const f = 100 / scale; maxAboveU *= f; maxBlockU *= f; maxBelowU *= f; measuredLayout = true; }
   const k = scale / 100;
   const above = Math.round(maxAboveU * k), block = Math.round(maxBlockU * k), below = Math.round(maxBelowU * k);
-  const r = el("ribbon");
-  r.style.height = (FRAME_PAD + above + block + below + FRAME_PAD) + "px";
-  r.dataset.anchor = String(FRAME_PAD + above);   // y (within the frame) where the top staff must sit
+  frameH = FRAME_PAD + above + block + below + FRAME_PAD;
+  anchorY = FRAME_PAD + above; blockH = block;
+
+  systems = []; measureX = []; measureIdToIndex.clear();
+  let x = 0;
+  for (let p = 1; p <= pageCount; p++) {
+    const w = pageW[p - 1] || 0;
+    systems.push({ svg: pageSvgCache.get(p), x, w, mounted: null });
+    (pageBars[p - 1] || []).forEach((m) => {
+      if (m.id) measureIdToIndex.set(m.id, measureX.length);
+      measureX.push({ x: Math.round(x + m.l), w: Math.max(10, Math.round(m.r - m.l)) });
+    });
+    x += w;
+  }
+  stripW = Math.round(x);
+  if (printedCount && measureX.length !== printedCount)
+    console.warn("measure count mismatch: strip=" + measureX.length + " sync=" + printedCount);
+
+  const ribbon = el("ribbon"), box = el("box");
+  ribbon.style.width = stripW + "px";
+  ribbon.style.height = frameH + "px";
+  [...ribbon.querySelectorAll(".sys")].forEach((n) => n.remove());
+  if (box.parentNode !== ribbon) ribbon.appendChild(box);
+  mountVisible();
+  note("", false);
+}
+
+/* mount the systems intersecting the viewport (+pad); unmount the rest (virtualization) */
+function mountVisible() {
+  if (!systems.length) return;
+  const wrap = el("ribbon-wrap"), ribbon = el("ribbon"), box = el("box");
+  const vl = wrap.scrollLeft - MOUNT_PAD, vr = wrap.scrollLeft + wrap.clientWidth + MOUNT_PAD;
+  for (const s of systems) {
+    const vis = (s.x < vr && s.x + s.w > vl);
+    if (vis && !s.mounted) {
+      const d = document.createElement("div"); d.className = "sys";
+      d.style.cssText = "left:" + s.x + "px;width:" + s.w + "px;height:" + frameH + "px";
+      d.innerHTML = s.svg;
+      ribbon.insertBefore(d, box);   // keep the box as the last child so it draws on top
+      const svg = d.querySelector("svg");
+      if (svg) {
+        const sr = svg.getBoundingClientRect(), s1 = svg.querySelector(".staff");
+        if (s1) svg.style.marginTop = Math.round(anchorY - (s1.getBoundingClientRect().top - sr.top)) + "px";
+        dimSvg(svg);
+      }
+      s.mounted = d;
+    } else if (!vis && s.mounted) { s.mounted.remove(); s.mounted = null; }
+  }
+}
+
+/* place the highlight box over printed bar k (strip coords — it scrolls with the music) */
+function boxBar(k) {
+  const m = measureX[k], box = el("box");
+  if (!m) { box.classList.remove("on"); boxedBar = -1; return; }
+  box.style.left = m.x + "px"; box.style.width = m.w + "px";
+  box.style.top = anchorY + "px"; box.style.height = blockH + "px";
+  box.classList.add("on"); boxedBar = k;
+  el("barpos").textContent = measureX.length ? ("bar " + (k + 1) + " / " + measureX.length) : "—";
+}
+function scrollToBar(k, smooth) {
+  const wrap = el("ribbon-wrap"), m = measureX[k]; if (!m) return;
+  wrap.scrollTo({ left: Math.max(0, m.x - wrap.clientWidth * READ_FRAC), behavior: smooth ? "smooth" : "auto" });
+  mountVisible();
+}
+/* bar nearest the read line at the current scroll position (manual stepping) */
+function barAtScroll() {
+  const wrap = el("ribbon-wrap"), cx = wrap.scrollLeft + wrap.clientWidth * READ_FRAC;
+  let lo = 0, hi = measureX.length - 1, ans = 0;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (measureX[mid].x <= cx) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
+  return ans;
+}
+function browseBar(dir) {
+  if (!measureX.length) return;
+  const k = Math.max(0, Math.min(measureX.length - 1, barAtScroll() + dir));
+  boxBar(k); scrollToBar(k, true);
 }
 
 function relayoutDisplay() {
   note("preparing…", true);
   requestAnimationFrame(() => {
     try {
-      pageSvgCache.clear();                    // layout/data changed -> old renders are stale
       renderedScale = parseInt(el("zoom").value, 10);
       tk.setOptions(renderOptionsPaged());
       if (!tk.loadData(displayXml())) { note("Verovio could not parse the score."); return; }
       pageCount = tk.getPageCount();
-      applyUniformHeight();
-      renderPage(currentPage);
-      if (usePractice) rebuildMeasureMap();   // page numbers change with zoom
+      const keep = boxedBar;
+      buildStrip();
+      if (keep >= 0) { boxBar(keep); scrollToBar(keep, false); }
       note("", false);
     } catch (e) { note("display error: " + e.message); }
   });
-}
-
-function renderPage(p) {
-  currentPage = Math.max(1, Math.min(p, pageCount));
-  const ribbon = el("ribbon");
-  const box = el("box");
-  ribbon.innerHTML = "";
-  let svgStr = pageSvgCache.get(currentPage);          // reuse the rendered system if we've seen it
-  if (svgStr === undefined) { svgStr = tk.renderToSVG(currentPage); pageSvgCache.set(currentPage, svgStr); }
-  ribbon.insertAdjacentHTML("beforeend", svgStr);
-  ribbon.appendChild(box);
-  box.classList.remove("on");                 // hide until placed on a bar
-  const svg = ribbon.querySelector("svg");
-  // TOP-ANCHOR: shift the system so its top staff sits at the same Y on every set (no jump)
-  if (svg) {
-    const sr = svg.getBoundingClientRect();
-    const s1 = svg.querySelector(".staff");
-    const anchor = parseFloat(ribbon.dataset.anchor || "0");
-    if (s1) svg.style.marginTop = Math.round(anchor - (s1.getBoundingClientRect().top - sr.top)) + "px";
-  }
-  // vertical extent of the 6-staff block (for the highlight box) AFTER anchoring
-  let t = Infinity, b = -Infinity;
-  if (svg) svg.querySelectorAll(".staff").forEach((s) => { const r = s.getBoundingClientRect(); if (r.height > 2) { t = Math.min(t, r.top); b = Math.max(b, r.bottom); } });
-  const rr = ribbon.getBoundingClientRect();
-  sysBoxTop = (t === Infinity) ? 0 : (t - rr.top);
-  sysBoxH = (b === -Infinity) ? 0 : (b - t);
-  applyDim();
-  el("barpos").textContent = pageCount ? ("set " + currentPage + " / " + pageCount) : "—";
 }
 
 /* Fade dimmed parts AND everything that visually belongs to them (dynamics, slurs, ties,
@@ -660,10 +700,8 @@ function renderPage(p) {
  * "Allegro assai") are headings for the WHOLE system, so they're deliberately NOT dimmable. */
 const DIM_MARKS = ".above,.below,.dynam,.dynamList,.hairpin,.dir,.fermata,.slur,.tie," +
   ".pedal,.trill,.mordent,.turn,.arpeg,.breath,.fing,.harm,.octave,.gliss,.reh,.label,.labelAbbr,.grpSym,.ending,.bracketSpan";
-function applyDim() {
-  el("dimpiano")?.classList.toggle("on", dimPiano);
-  el("dimsolo")?.classList.toggle("on", dimSolo);
-  const svg = el("ribbon").querySelector("svg");
+/* fade one system's svg: classify staves + markings by vertical position (uniform across systems) */
+function dimSvg(svg) {
   if (!svg) return;
   svg.querySelectorAll(".dim").forEach((e) => e.classList.remove("dim"));
   if (!dimPiano && !dimSolo) return;
@@ -673,46 +711,24 @@ function applyDim() {
   const pianoMid = (six[3].bottom + six[4].top) / 2;   // below this = piano region
   const soloMid = (six[1].bottom + six[2].top) / 2;    // above this = solo region
   const dimY = (cy) => (dimPiano && cy > pianoMid) || (dimSolo && cy < soloMid);
-  // staves
   svg.querySelectorAll(".measure").forEach((m) => {
     const st = m.querySelectorAll(".staff"); const n = st.length;
     st.forEach((s, i) => { if ((dimPiano && i >= n - 2) || (dimSolo && i < 2)) s.classList.add("dim"); });
   });
-  // markings, classified by vertical position (document order -> ancestors first, no opacity compounding)
   svg.querySelectorAll(DIM_MARKS).forEach((e) => {
     if (e.closest(".staff") || e.closest(".dim")) return;   // already faded by an ancestor
     const r = e.getBoundingClientRect();
     if (r.height && dimY((r.top + r.bottom) / 2)) e.classList.add("dim");
   });
 }
-
-/* put the highlight box over a SINGLE bar (covers all staves, full system height).
- * Use the STAFF lines for the bar width (they never overhang, unlike slurs/beams/ties). */
-function boxOverMeasure(measureEl) {
-  const ribbon = el("ribbon"), box = el("box");
-  const svg = ribbon.querySelector("svg");
-  if (!measureEl || !svg) { box.classList.remove("on"); return; }
-  // union the x-extent of this bar's staff groups (staff lines = exact bar width)
-  let left = Infinity, right = -Infinity;
-  measureEl.querySelectorAll(".staff").forEach((s) => {
-    const r = s.getBoundingClientRect();
-    if (r.width > 4) { left = Math.min(left, r.left); right = Math.max(right, r.right); }
-  });
-  if (left === Infinity) { const mr = measureEl.getBoundingClientRect(); left = mr.left; right = mr.right; }
-  const rr = ribbon.getBoundingClientRect();
-  box.style.left = (left - rr.left) + "px";
-  box.style.width = Math.max(10, right - left) + "px";
-  box.style.top = sysBoxTop + "px";           // cover the staff block (set in renderPage), not the headroom
-  box.style.height = sysBoxH + "px";
-  box.classList.add("on");
+/* apply the current dim state to every mounted system + reflect the toggle buttons */
+function applyDim() {
+  el("dimpiano")?.classList.toggle("on", dimPiano);
+  el("dimsolo")?.classList.toggle("on", dimSolo);
+  el("ribbon").querySelectorAll(".sys svg").forEach((svg) => dimSvg(svg));
 }
 
-function pageForMeasureFraction(measureIdx) {
-  if (!totalMeasures) return 1;
-  return Math.max(1, Math.min(pageCount, Math.round((measureIdx / totalMeasures) * pageCount) + 1));
-}
-
-/* ---------- playback: full-piece MIDI; a tall box follows the current bar, set-by-set ---------- */
+/* ---------- playback: full-piece MIDI; a tall box follows the current bar, gliding smoothly ---------- */
 function clearHighlight() { el("box").classList.remove("on"); }
 // Research-informed timing (sight-reading eye-hand span ~1s/0-2 beats; tap anticipation ~tens of ms):
 //   BOX sits ~on the beat with a small lead to cancel latency; the SET turns ~1 beat early.
@@ -721,35 +737,35 @@ const SWAP_LEAD_MS = 500;   // how early the page turns (within the natural look
 /* measure-driven follow: the prebuilt MIDI's clock (seconds) -> current bar via sync.json,
  * then box that bar and turn the set early. Independent of Verovio's (incorrect) MIDI clock. */
 function followPractice(t) {
-  if (!measurePages.length || !syncTimes.length) return;
-  const lastP = measurePages.length - 1, lastE = syncPrinted.length - 1;
-  const printedAt = (lead) => Math.min(lastP, syncPrinted[Math.min(lastE, currentMeasureAt(toOrig(t) + lead))]);
-  const boxPrinted = printedAt(BOX_LEAD_MS / 1000);            // expanded step -> printed bar (revisits on repeat)
-  const box = measurePages[boxPrinted];
-  const swap = measurePages[printedAt(SWAP_LEAD_MS / 1000)];
-  if (!box) return;
-  updateCurrentSection(boxPrinted);
-  const target = Math.max(box.page > 0 ? box.page : currentPage, swap && swap.page > 0 ? swap.page : currentPage);
-  if (target !== currentPage) renderPage(target);
-  const id = (box.page === currentPage) ? box.id : (swap ? swap.id : box.id);   // at a set-swap, box the upcoming bar
-  const n = id ? document.getElementById(id) : null;
-  if (n) boxOverMeasure(n);
+  if (!measureX.length || !syncTimes.length) return;
+  const ot = toOrig(t);
+  const lastE = syncPrinted.length - 1;
+  const boxE = Math.min(lastE, currentMeasureAt(ot + BOX_LEAD_MS / 1000));   // small lead so the box sits on the beat
+  const printed = syncPrinted[boxE];                                          // revisits the repeated bars on pass 2
+  updateCurrentSection(printed);
+  if (printed !== boxedBar) boxBar(printed);
+  // smooth continuous scroll: interpolate the playhead's x within the current bar's time span
+  const eNow = Math.min(lastE, currentMeasureAt(ot));
+  const m = measureX[syncPrinted[eNow]];
+  let x = m ? m.x : 0;
+  if (m) {
+    const t0 = syncTimes[eNow], t1 = eNow < lastE ? syncTimes[eNow + 1] : (syncTotal || t0 + 1);
+    const frac = t1 > t0 ? Math.max(0, Math.min(1, (ot - t0) / (t1 - t0))) : 0;
+    x = m.x + frac * m.w;
+  }
+  const wrap = el("ribbon-wrap");
+  wrap.scrollLeft = Math.max(0, x - wrap.clientWidth * READ_FRAC);
+  mountVisible();
 }
-function follow(ms) {
-  let atBox, atSwap;
-  try { atBox = tk.getElementsAtTime(ms + BOX_LEAD_MS); atSwap = tk.getElementsAtTime(ms + SWAP_LEAD_MS); } catch (e) { return; }
-  const boxNote = (atBox && atBox.notes || [])[0];
-  const swapNote = (atSwap && atSwap.notes || [])[0];
-  if (!boxNote && !swapNote) return;
-  const boxPage = boxNote ? tk.getPageWithElement(boxNote) : currentPage;   // at.page is unreliable
-  const swapPage = swapNote ? tk.getPageWithElement(swapNote) : boxPage;
-  const target = Math.max(boxPage > 0 ? boxPage : currentPage, swapPage > 0 ? swapPage : currentPage);
-  if (target !== currentPage) renderPage(target);                           // turn the set early
-  // box the on-beat bar if it's on the shown set; at a boundary swap, box the upcoming bar (new set)
-  const boxId = (boxPage === currentPage && boxNote) ? boxNote : swapNote;
-  const n = boxId ? document.getElementById(boxId) : null;
-  const measureEl = n && n.closest(".measure");
-  if (measureEl) boxOverMeasure(measureEl);
+function follow(ms) {   // demo fallback (Verovio's own clock): box the current note's bar when mounted
+  let at; try { at = tk.getElementsAtTime(ms + BOX_LEAD_MS); } catch (e) { return; }
+  const noteId = (at && at.notes || [])[0]; if (!noteId) return;
+  const nEl = document.getElementById(noteId);
+  const mEl = nEl && nEl.closest(".measure");
+  const k = mEl ? measureIdToIndex.get(mEl.id) : null;
+  if (k == null) return;
+  if (k !== boxedBar) boxBar(k);
+  scrollToBar(k, false);
 }
 const fmt = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
 /* ONE persistent loop — never cancelled, so interacting can't permanently stop following */
@@ -890,60 +906,51 @@ async function main() {
     tk.setOptions(renderOptionsPaged());
     tk.loadData(displayXml());
     pageCount = tk.getPageCount();
-    applyUniformHeight();
     setProgress(76, "Rendering…"); await paint();
-    renderPage(1);
+    buildStrip();
+    boxBar(0); scrollToBar(0, false);
   } catch (e) { displayOk = false; note("display error: " + e.message); }
   if (displayOk) {
     try {
       setProgress(88, "Indexing bars…"); await paint();
-      if (usePractice) { rebuildMeasureMap(); updateAudio(); }
+      if (usePractice) { updateAudio(); }
       else { buildAudioBank(); updateAudio(); }
     } catch (e) { console.warn("audio setup failed", e); note("audio error: " + e.message); }
   }
   setProgress(100, "Ready"); note("", false); hideLoader();
 
-  // ZOOM: instant CSS-scale preview while dragging; one real re-layout on release (no per-tick freeze)
-  el("zoom").addEventListener("input", () => {
-    const s = parseInt(el("zoom").value, 10);
-    el("ribbon").style.transform = "scale(" + (s / renderedScale) + ")";
-  });
-  el("zoom").addEventListener("change", () => { el("ribbon").style.transform = ""; relayoutDisplay(); });
-  el("prev").addEventListener("click", () => renderPage(currentPage - 1));
-  el("next").addEventListener("click", () => renderPage(currentPage + 1));
+  // ZOOM: re-render the whole strip at the new scale on release (positions depend on every system)
+  el("zoom").addEventListener("change", () => relayoutDisplay());
+  // prev/next: page through by ~one screen of bars
+  const scrollScreen = (dir) => { const w = el("ribbon-wrap"); w.scrollBy({ left: dir * w.clientWidth * 0.85, behavior: "smooth" }); };
+  el("prev").addEventListener("click", () => scrollScreen(-1));
+  el("next").addEventListener("click", () => scrollScreen(+1));
 
-  // ----- manual browse: arrow keys / swipe / horizontal wheel page the score (no audio) -----
-  const browse = (dir) => renderPage(currentPage + dir);
+  // ----- manual browse: native horizontal scroll (touch swipe + trackpad) is smooth & bar-by-bar
+  //       for free; arrow keys step one bar, Home/End jump to the ends -----
   window.addEventListener("keydown", (e) => {
     const t = e.target;
     if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;   // don't hijack sliders/dropdowns
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     switch (e.key) {
-      case "ArrowRight": case "ArrowDown": case "PageDown": browse(+1); e.preventDefault(); break;
-      case "ArrowLeft":  case "ArrowUp":   case "PageUp":   browse(-1); e.preventDefault(); break;
-      case "Home": renderPage(1); e.preventDefault(); break;
-      case "End":  renderPage(pageCount); e.preventDefault(); break;
+      case "ArrowRight": case "ArrowDown": case "PageDown": browseBar(+1); e.preventDefault(); break;
+      case "ArrowLeft":  case "ArrowUp":   case "PageUp":   browseBar(-1); e.preventDefault(); break;
+      case "Home": boxBar(0); scrollToBar(0, true); e.preventDefault(); break;
+      case "End":  boxBar(measureX.length - 1); scrollToBar(measureX.length - 1, true); e.preventDefault(); break;
     }
   });
   const wrap = el("ribbon-wrap");
-  let tsx = 0, tsy = 0, tsOn = false;                                // touch swipe (horizontal)
-  wrap.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 1) { tsx = e.touches[0].clientX; tsy = e.touches[0].clientY; tsOn = true; }
-  }, { passive: true });
-  wrap.addEventListener("touchend", (e) => {
-    if (!tsOn) return; tsOn = false;
-    const c = e.changedTouches[0], dx = c.clientX - tsx, dy = c.clientY - tsy;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) browse(dx < 0 ? +1 : -1);   // swipe left = next
-  }, { passive: true });
-  let wheelLock = 0, wheelAcc = 0;                                   // trackpad / horizontal wheel (one flick = one set)
+  // a vertical wheel over the ribbon scrolls it horizontally (nice on a mouse with no h-wheel)
   wrap.addEventListener("wheel", (e) => {
-    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;           // leave vertical scrolling alone
-    e.preventDefault();
-    const now = performance.now();
-    if (now < wheelLock) return;
-    wheelAcc += e.deltaX;
-    if (Math.abs(wheelAcc) > 40) { browse(wheelAcc > 0 ? +1 : -1); wheelAcc = 0; wheelLock = now + 320; }
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || e.shiftKey) return;   // trackpads already send deltaX
+    wrap.scrollLeft += e.deltaY; e.preventDefault();
   }, { passive: false });
+  // keep systems mounted as the user scrolls manually (rAF-throttled)
+  let mountQueued = false;
+  wrap.addEventListener("scroll", () => {
+    if (mountQueued) return; mountQueued = true;
+    requestAnimationFrame(() => { mountQueued = false; if (!isPlaying) mountVisible(); });
+  }, { passive: true });
 
   // transport: back-to-start / prev section / next section / jump-to-playhead
   el("toStart").addEventListener("click", () => transport("start"));

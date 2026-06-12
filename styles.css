@@ -61,13 +61,15 @@ body{display:flex;flex-direction:column}   /* header / score / transport stack; 
 #status.show{padding:8px 14px;max-height:140px}
 
 /* one system ("set of bars") fills the screen; a tall box highlights the current bar */
-#ribbon-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:10px 14px}
-/* fixed-height frame sized to the MAX the system needs; the system is top-anchored via JS margin */
-#ribbon{position:relative;background:#faf8f2;border-radius:10px;padding-left:10px;padding-right:10px;
-  box-sizing:border-box;display:flex;align-items:flex-start;justify-content:center;overflow:hidden;
-  box-shadow:0 2px 14px rgba(0,0,0,.4)}
+#ribbon-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:block;padding:10px 14px}
+/* continuous horizontal ribbon: one tall strip of the whole piece; systems are mounted into it
+   on demand (virtualized) at their measured x; native horizontal scroll = smooth bar-by-bar slide */
+#ribbon{position:relative;background:#faf8f2;border-radius:10px;box-sizing:border-box;overflow:visible;
+  box-shadow:0 2px 14px rgba(0,0,0,.4);transform-origin:left top}
 #ribbon svg{display:block;height:auto}
-#ribbon{transform-origin:center top}   /* zoom preview scales from the top-centre */
+.sys{position:absolute;top:0;overflow:hidden}   /* one mounted system (set of bars) */
+.sys svg{display:block}
+#ribbon-wrap.following{scroll-behavior:auto}     /* during playback we drive scrollLeft per frame */
 #box{position:absolute;top:0;height:0;left:0;width:0;pointer-events:none;z-index:2;
   background:rgba(122,162,255,.16);border:2px solid rgba(122,162,255,.85);border-radius:4px;
   box-shadow:0 0 10px rgba(122,162,255,.4);transition:left .12s ease,width .12s ease;opacity:0}

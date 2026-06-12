@@ -13,6 +13,8 @@ follow any single voice.
   maestoso, …); selecting one moves the view and cues playback there.
 - **Follow cursor** — a box highlights the current bar set; the repeat is played out with 1st/2nd
   endings and the cursor revisits the repeated bars.
+- **Manual browse** — page through the score with arrow keys (Home/End for first/last), a touch
+  swipe, or a horizontal trackpad flick — no audio needed.
 - **Tempo** slider, **Dim solo / Dim piano**, zoom, first-load progress bar.
 
 ## Run locally

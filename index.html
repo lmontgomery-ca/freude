@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
 <title>FREUDE — Ribbon (v2, notation-driven)</title>
-<link rel="stylesheet" href="styles.css?v=34" />
+<link rel="stylesheet" href="styles.css?v=36" />
 <!-- Verovio: MusicXML -> SVG notation + timemap (note->time map for the cursor) -->
 <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
 <!-- html-midi-player: plays the MIDI that Verovio generates from the same score -->
@@ -51,10 +51,15 @@
   <footer id="transport">
     <div class="tgroup">
       <button id="toStart" class="tbtn" title="Back to start">⏮&#xFE0E;</button>
-      <button id="prevSection" class="tbtn" title="Previous section">⏪&#xFE0E;</button>
+      <button id="prevSection" class="tbtn" title="Back one bar">⏪&#xFE0E;</button>
       <button id="play" disabled title="Play / Pause">▶&#xFE0E;</button>
-      <button id="nextSection" class="tbtn" title="Next section">⏩&#xFE0E;</button>
+      <button id="nextSection" class="tbtn" title="Forward one bar">⏩&#xFE0E;</button>
       <button id="locate" class="tbtn" title="Jump to playhead">⌖</button>
+    </div>
+    <div class="tgroup">
+      <button id="prev" class="tbtn" title="Previous set of bars">◀</button>
+      <span id="barpos" class="time">—</span>
+      <button id="next" class="tbtn" title="Next set of bars">▶</button>
     </div>
     <midi-player id="midi" sound-font visualizer="#none" style="display:none"></midi-player>
     <span id="time" class="time">0:00</span>
@@ -66,12 +71,8 @@
       <span id="tempopct" class="time">100%</span>
     </label>
     <div class="spacer"></div>
-    <button id="prev" title="Previous set of bars">◀</button>
-    <span id="barpos" class="time">—</span>
-    <button id="next" title="Next set of bars">▶</button>
-    <button id="jumpvoices" class="preset" title="Jump to first vocal entry">Voices ⤓</button>
   </footer>
 
-  <script src="app.js?v=34" defer></script>
+  <script src="app.js?v=36" defer></script>
 </body>
 </html>

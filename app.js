@@ -521,13 +521,19 @@ function sectionStartMusical(i) {
   const e = syncPrinted.indexOf(sections[i].idx);
   return e >= 0 ? syncTimes[e] : 0;
 }
+function stepBar(delta) {                 // move the playhead one bar back/forward
+  if (!syncTimes.length) { renderPage(currentPage + delta); return; }   // no sync map -> page step fallback
+  const now = nowMusical();
+  let e = Math.min(syncTimes.length - 1, Math.max(0, currentMeasureAt(now)));
+  if (delta < 0) e = (now - syncTimes[e] > 0.25) ? e : Math.max(0, e - 1);   // back: snap to this bar's start, else prev bar
+  else e = Math.min(syncTimes.length - 1, e + 1);
+  seekMusical(syncTimes[e]);
+}
 function transport(action) {
   if (action === "start") return seekMusical(0);
   if (action === "locate") return showPrinted(printedForMusical(nowMusical()));   // re-centre the view on the playhead
-  if (!sections.length) return;
-  const i = currentSectionIndex();
-  if (action === "next") jumpToSection(Math.min(sections.length - 1, i + 1));
-  else if (action === "prev") jumpToSection((nowMusical() - sectionStartMusical(i) > 1.5) ? i : Math.max(0, i - 1));
+  if (action === "next") return stepBar(1);
+  if (action === "prev") return stepBar(-1);
 }
 
 /* ===== continuous virtualized strip: whole piece as one scrolling ribbon ===== */
@@ -901,7 +907,40 @@ async function main() {
   el("zoom").addEventListener("change", () => { el("ribbon").style.transform = ""; relayoutDisplay(); });
   el("prev").addEventListener("click", () => renderPage(currentPage - 1));
   el("next").addEventListener("click", () => renderPage(currentPage + 1));
-  el("jumpvoices").addEventListener("click", () => renderPage(pageForMeasureFraction(firstVocalMeasure)));
+
+  // ----- manual browse: arrow keys / swipe / horizontal wheel page the score (no audio) -----
+  const browse = (dir) => renderPage(currentPage + dir);
+  window.addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;   // don't hijack sliders/dropdowns
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    switch (e.key) {
+      case "ArrowRight": case "ArrowDown": case "PageDown": browse(+1); e.preventDefault(); break;
+      case "ArrowLeft":  case "ArrowUp":   case "PageUp":   browse(-1); e.preventDefault(); break;
+      case "Home": renderPage(1); e.preventDefault(); break;
+      case "End":  renderPage(pageCount); e.preventDefault(); break;
+    }
+  });
+  const wrap = el("ribbon-wrap");
+  let tsx = 0, tsy = 0, tsOn = false;                                // touch swipe (horizontal)
+  wrap.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) { tsx = e.touches[0].clientX; tsy = e.touches[0].clientY; tsOn = true; }
+  }, { passive: true });
+  wrap.addEventListener("touchend", (e) => {
+    if (!tsOn) return; tsOn = false;
+    const c = e.changedTouches[0], dx = c.clientX - tsx, dy = c.clientY - tsy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) browse(dx < 0 ? +1 : -1);   // swipe left = next
+  }, { passive: true });
+  let wheelLock = 0, wheelAcc = 0;                                   // trackpad / horizontal wheel (one flick = one set)
+  wrap.addEventListener("wheel", (e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;           // leave vertical scrolling alone
+    e.preventDefault();
+    const now = performance.now();
+    if (now < wheelLock) return;
+    wheelAcc += e.deltaX;
+    if (Math.abs(wheelAcc) > 40) { browse(wheelAcc > 0 ? +1 : -1); wheelAcc = 0; wheelLock = now + 320; }
+  }, { passive: false });
+
   // transport: back-to-start / prev section / next section / jump-to-playhead
   el("toStart").addEventListener("click", () => transport("start"));
   el("prevSection").addEventListener("click", () => transport("prev"));

@@ -71,6 +71,7 @@ let tempoRate = 1, appliedRate = 1;
 const toOrig = (realSec) => realSec * appliedRate;   // player time -> musical (score) time
 const toReal = (origSec) => origSec / appliedRate;   // musical time -> player time
 let sections = [], cueTime = null, curSectionIdx = -1;   // tempo/section headings for the jump dropdown
+let bassEntries = [];   // bars where the choir bass enters after a rest -> rehearsal letters A,B,C…
 
 // PER-PART AUDIO: each part button has a dropdown (solo/mute, volume, instrument)
 const laneVolume = new Map();     // lane.id -> volume multiplier (0..1.5), default 1
@@ -438,44 +439,94 @@ function detectSections() {
   dedup.forEach((s) => { s.label = s.text.replace(/\s*\.\s*$/, "") + "  ·  m." + s.num; });
   return dedup;
 }
+/* ---------- bass entries -> rehearsal letters ----------
+ * Find every bar where the choir bass (lane "B") starts singing after a full bar+ of rest, stamp
+ * a boxed rehearsal letter (A, B, C…) above that bar in the top part, and feed the jump dropdown. */
+function bassLetter(n) {
+  return n < 26 ? String.fromCharCode(65 + n)
+                : String.fromCharCode(64 + Math.floor(n / 26)) + String.fromCharCode(65 + (n % 26));
+}
+function injectRehearsal(measureEl, letter) {
+  const doc = measureEl.ownerDocument;
+  const dir = doc.createElement("direction"); dir.setAttribute("placement", "above");
+  dir.setAttribute("data-freude-reh", "1");
+  const dt = doc.createElement("direction-type");
+  const reh = doc.createElement("rehearsal"); reh.setAttribute("enclosure", "rectangle"); reh.textContent = letter;
+  dt.appendChild(reh); dir.appendChild(dt);
+  const firstNote = measureEl.querySelector("note");
+  if (firstNote) measureEl.insertBefore(dir, firstNote); else measureEl.appendChild(dir);
+}
+function detectBassEntries() {
+  const out = [];
+  const bassLane = lanes.find((l) => l.label === "B");      // choir bass section
+  if (!bassLane) return out;
+  const partEl = originalDoc.querySelector('part[id="' + bassLane.partId + '"]');
+  if (!partEl) return out;
+  const voice = bassLane.voice;
+  const measures = [...partEl.children].filter((c) => c.tagName === "measure");
+  const sings = measures.map((m) =>
+    [...m.querySelectorAll("note")].some((n) => {
+      const v = n.querySelector("voice");
+      return (v ? v.textContent.trim() : "1") === voice && n.querySelector("pitch") && !n.querySelector("rest");
+    })
+  );
+  const topPart = originalDoc.querySelector("part");
+  const topMeasures = topPart ? [...topPart.children].filter((c) => c.tagName === "measure") : [];
+  let li = 0;
+  for (let i = 0; i < sings.length; i++) {
+    if (!sings[i] || (i !== 0 && sings[i - 1])) continue;   // entry = sings now, rested the whole previous bar
+    const letter = bassLetter(li++);
+    out.push({ idx: i, num: measures[i].getAttribute("number"), letter });
+    if (topMeasures[i]) injectRehearsal(topMeasures[i], letter);
+  }
+  return out;
+}
+
 function buildSectionUI() {
   const sel = el("sectionjump");
   if (!sel) return;
   sel.innerHTML = "";
   const def = document.createElement("option");
-  def.value = ""; def.textContent = sections.length ? "Jump to section…" : "(no sections)";
+  def.value = ""; def.textContent = (sections.length || bassEntries.length) ? "Jump to…" : "(none)";
   sel.appendChild(def);
-  sections.forEach((s, i) => {
-    const o = document.createElement("option");
-    o.value = String(i); o.textContent = s.label; sel.appendChild(o);
-  });
+  if (sections.length) {
+    const g = document.createElement("optgroup"); g.label = "Tempo / sections";
+    sections.forEach((s, i) => { const o = document.createElement("option"); o.value = "s" + i; o.textContent = s.label; g.appendChild(o); });
+    sel.appendChild(g);
+  }
+  if (bassEntries.length) {
+    const g = document.createElement("optgroup"); g.label = "Bass entries";
+    bassEntries.forEach((b, i) => { const o = document.createElement("option"); o.value = "b" + i; o.textContent = "▯ " + b.letter + "  ·  m." + b.num; g.appendChild(o); });
+    sel.appendChild(g);
+  }
   sel.addEventListener("change", () => {
-    const i = parseInt(sel.value, 10);
-    if (!isNaN(i) && sections[i]) jumpToSection(i);
+    const v = sel.value;
+    if (v[0] === "s") jumpToSection(parseInt(v.slice(1), 10));
+    else if (v[0] === "b") jumpToBassEntry(parseInt(v.slice(1), 10));
     sel.blur();
   });
 }
 function markSection(i) {   // reflect the current section in the dropdown (unless the user is using it)
   const sel = el("sectionjump");
-  if (sel && document.activeElement !== sel) sel.value = i >= 0 ? String(i) : "";
+  if (sel && document.activeElement !== sel) sel.value = i >= 0 ? "s" + i : "";
 }
 function updateCurrentSection(printedIdx) {
   let si = -1;
   for (let k = 0; k < sections.length; k++) { if (sections[k].idx <= printedIdx) si = k; else break; }
   if (si !== curSectionIdx) { curSectionIdx = si; markSection(si); }
 }
-function jumpToSection(i) {
-  const s = sections[i]; if (!s) return;
-  boxBar(s.idx); scrollToBar(s.idx, true);
-  if (usePractice && syncPrinted.length) {           // cue the playhead to where this bar first plays
-    const e = syncPrinted.indexOf(s.idx);
+function gotoBar(idx) {          // box + glide to a printed bar, and cue the playhead there
+  boxBar(idx); scrollToBar(idx, true);
+  if (usePractice && syncPrinted.length) {
+    const e = syncPrinted.indexOf(idx);
     if (e >= 0) {
       try { el("midi").currentTime = toReal(syncTimes[e]); } catch (_) {}
       cueTime = isPlaying ? null : syncTimes[e];      // musical seconds; remembered for the next Play
     }
   }
-  curSectionIdx = i; markSection(i);
 }
+function jumpToSection(i) { const s = sections[i]; if (!s) return; gotoBar(s.idx); curSectionIdx = i; markSection(i); }
+function jumpToBassEntry(i) { const b = bassEntries[i]; if (!b) return; gotoBar(b.idx); }
 
 /* ---------- transport: back-to-start / prev+next section / locate playhead ---------- */
 function nowMusical() { return toOrig(el("midi").currentTime || 0); }     // playhead in musical (score) seconds
@@ -892,6 +943,7 @@ async function main() {
   totalMeasures = firstPart ? [...firstPart.children].filter((c) => c.tagName === "measure").length : 0;
   firstVocalMeasure = computeFirstVocalMeasure();
   sections = detectSections();   // tags section directions in originalDoc (so displayXml hides them)
+  bassEntries = detectBassEntries();   // stamp rehearsal letters at bass entries + feed the dropdown
 
   buildLaneUI();
   setupLaneMenu();

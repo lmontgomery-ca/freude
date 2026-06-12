@@ -8,7 +8,7 @@
    Fetch is cache-first; anything new (Verovio WASM, soundfont samples) is cached the first time
    it's fetched, so after one online session — including playing audio once — the app works
    fully offline. */
-const VERSION = "v5";
+const VERSION = "v6";
 const SHELL = "freude-shell-" + VERSION;
 const SOUND = "freude-soundfont-v1";
 const SOUND_HOST = "storage.googleapis.com/magentadata/js/soundfonts";
@@ -19,7 +19,7 @@ const LOCAL = [
   "./",
   "./index.html",
   "./styles.css?v=39",
-  "./app.js?v=39",
+  "./app.js?v=40",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",

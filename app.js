@@ -112,7 +112,11 @@ async function discoverInSource() {
     return "source/" + hits[0];
   } catch (e) { return null; }
 }
-const rank = (f) => (/\.mxl$/i.test(f) ? 0 : /\.musicxml$/i.test(f) ? 1 : 2);
+// prefer the canonical trimmed score.* ; otherwise rank by format (.mxl > .musicxml > .xml)
+const rank = (f) => {
+  const named = /^score\.(mxl|musicxml|xml)$/i.test(f) ? 0 : 10;
+  return named + (/\.mxl$/i.test(f) ? 0 : /\.musicxml$/i.test(f) ? 1 : 2);
+};
 
 async function fetchScore(url) {
   const r = await fetch(url, { cache: "no-store" });

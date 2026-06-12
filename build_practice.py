@@ -8,7 +8,7 @@ import zipfile, json, os
 import xml.etree.ElementTree as ET
 import mido
 
-SRC = r"e:/2026/FREUDE!!!/apps/source/beethoven-symphony-no-9-4th-movement-piano-solo-with-chorus.mxl"
+SRC = r"e:/2026/FREUDE!!!/apps/source/score.mxl"   # trimmed score (intro cut by trim_intro.py)
 OUTDIR = r"e:/2026/FREUDE!!!/apps/source"
 PPQ = 480
 

@@ -1,18 +1,25 @@
 /* FREUDE service worker — offline / installable PWA.
-   Strategy:
-   - install: pre-cache the local app shell + the score, and the CDN engine/player libs.
-   - fetch:   cache-first; anything new (Verovio WASM, the per-instrument soundfont
-              magenta loads on demand, etc.) is cached the first time it's fetched, so
-              after one online session — including playing audio once — the app works
-              fully offline. Bump CACHE to force a refresh of everything. */
-const CACHE = "freude-v3";
+   Two caches:
+   - SHELL (versioned): app shell + score + audio + CDN engine/player. Bump VERSION to refresh
+     these on a release; the activate step deletes only OLD shell caches.
+   - SOUND (stable): the magenta per-instrument samples (~21MB), warmed once by the page. This
+     cache is NEVER deleted on a version bump, so shipping a new build doesn't force a 21MB
+     re-download.
+   Fetch is cache-first; anything new (Verovio WASM, soundfont samples) is cached the first time
+   it's fetched, so after one online session — including playing audio once — the app works
+   fully offline. */
+const VERSION = "v4";
+const SHELL = "freude-shell-" + VERSION;
+const SOUND = "freude-soundfont-v1";
+const SOUND_HOST = "storage.googleapis.com/magentadata/js/soundfonts";
+const isSound = (u) => u.indexOf(SOUND_HOST) >= 0;
 
 // same-origin shell (exact query strings must match what index.html requests)
 const LOCAL = [
   "./",
   "./index.html",
-  "./styles.css?v=37",
-  "./app.js?v=36",
+  "./styles.css?v=38",
+  "./app.js?v=38",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
@@ -33,15 +40,11 @@ const CROSS = [
 self.addEventListener("install", (e) => {
   e.waitUntil(
     (async () => {
-      const c = await caches.open(CACHE);
-      // add each individually so one 404/offline asset can't abort the whole install
+      const c = await caches.open(SHELL);
       await Promise.allSettled(LOCAL.map((u) => c.add(u)));
       await Promise.allSettled(
         CROSS.map(async (u) => {
-          try {
-            const r = await fetch(u, { mode: "no-cors" });
-            await c.put(u, r);
-          } catch (_) {}
+          try { await c.put(u, await fetch(u, { mode: "no-cors" })); } catch (_) {}
         })
       );
       await self.skipWaiting();
@@ -53,7 +56,8 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+      // delete stale SHELL caches only; keep the persistent SOUND cache
+      await Promise.all(keys.filter((k) => k !== SHELL && k !== SOUND).map((k) => caches.delete(k)));
       await self.clients.claim();
     })()
   );
@@ -62,8 +66,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
-  // never intercept range requests (audio sample streaming) — let the browser handle them
-  if (req.headers.has("range")) return;
+  if (req.headers.has("range")) return; // let the browser handle audio range requests
 
   e.respondWith(
     (async () => {
@@ -72,8 +75,9 @@ self.addEventListener("fetch", (e) => {
       try {
         const res = await fetch(req);
         if (res && (res.ok || res.type === "opaque" || res.type === "cors")) {
+          const target = isSound(req.url) ? SOUND : SHELL;
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          caches.open(target).then((c) => c.put(req, copy)).catch(() => {});
         }
         return res;
       } catch (err) {

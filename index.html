@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
+<title>FREUDE — Ribbon (v2, notation-driven)</title>
+<link rel="stylesheet" href="styles.css?v=34" />
+<!-- Verovio: MusicXML -> SVG notation + timemap (note->time map for the cursor) -->
+<script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
+<!-- html-midi-player: plays the MIDI that Verovio generates from the same score -->
+<script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.77,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0" defer></script>
+<!-- fflate: unzip compressed .mxl MusicXML in-browser -->
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js" defer></script>
+<!-- @tonejs/midi: mute/unmute MIDI tracks for instant per-part audio (no Verovio reload) -->
+<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js" defer></script>
+</head>
+<body>
+  <div id="loader">
+    <div class="loader-card">
+      <div class="loader-title">FREUDE</div>
+      <div class="loader-sub" id="loaderlabel">Loading…</div>
+      <div id="loaderbar"><div id="loaderfill"></div></div>
+    </div>
+  </div>
+  <header id="bar">
+    <strong>FREUDE</strong><span class="sub">ribbon · notation-driven</span>
+    <div class="parts" id="parts"><!-- part toggles injected here --></div>
+    <div class="spacer"></div>
+    <button id="dimsolo" class="dimbtn" title="Fade the soloist staves so the voices stand out">Dim solo</button>
+    <button id="dimpiano" class="dimbtn" title="Fade the piano staves so the voices stand out">Dim piano</button>
+    <label class="zoom">zoom
+      <input id="zoom" type="range" min="20" max="80" value="40" />
+    </label>
+  </header>
+
+  <!-- per-part dropdown (solo/mute, volume, instrument), positioned under the clicked part's caret -->
+  <div id="lanemenu" class="lanemenu" hidden>
+    <div class="lm-title"></div>
+    <div class="lm-row"><button class="lm-solo">Solo</button><button class="lm-mute">Mute</button></div>
+    <div class="lm-vol">Vol <input type="range" min="0" max="150" step="5" /><span class="v">100%</span></div>
+    <select class="lm-inst"></select>
+  </div>
+  <div id="status"></div>
+
+  <main id="ribbon-wrap">
+    <div id="ribbon"><!-- one system (set of bars) injected here -->
+      <div id="box"><!-- tall bar highlight --></div>
+    </div>
+  </main>
+
+  <footer id="transport">
+    <div class="tgroup">
+      <button id="toStart" class="tbtn" title="Back to start">⏮&#xFE0E;</button>
+      <button id="prevSection" class="tbtn" title="Previous section">⏪&#xFE0E;</button>
+      <button id="play" disabled title="Play / Pause">▶&#xFE0E;</button>
+      <button id="nextSection" class="tbtn" title="Next section">⏩&#xFE0E;</button>
+      <button id="locate" class="tbtn" title="Jump to playhead">⌖</button>
+    </div>
+    <midi-player id="midi" sound-font visualizer="#none" style="display:none"></midi-player>
+    <span id="time" class="time">0:00</span>
+    <select id="sectionjump" class="sectionjump" title="Jump to a section">
+      <option value="">Jump to section…</option>
+    </select>
+    <label class="tempo" title="Slow down or speed up playback (100% = written tempo)">tempo
+      <input id="tempo" type="range" min="-100" max="100" value="0" step="5" />
+      <span id="tempopct" class="time">100%</span>
+    </label>
+    <div class="spacer"></div>
+    <button id="prev" title="Previous set of bars">◀</button>
+    <span id="barpos" class="time">—</span>
+    <button id="next" title="Next set of bars">▶</button>
+    <button id="jumpvoices" class="preset" title="Jump to first vocal entry">Voices ⤓</button>
+  </footer>
+
+  <script src="app.js?v=34" defer></script>
+</body>
+</html>

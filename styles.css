@@ -1,0 +1,88 @@
+:root{
+  --bg:#14151a; --panel:#1d1f27; --ink:#e9ecf1; --mut:#9aa3b2;
+  --accent:#7aa2ff; --accent2:#ffd56b; --line:#2c2f3a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif;overflow:hidden}
+
+#bar{display:flex;align-items:center;gap:14px;padding:8px 14px;
+  background:var(--panel);border-bottom:1px solid var(--line)}
+/* first-load progress overlay */
+#loader{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  background:var(--bg);transition:opacity .35s ease}
+#loader.done{opacity:0;pointer-events:none}
+.loader-card{width:min(420px,72vw);text-align:center}
+.loader-title{font-size:30px;font-weight:700;letter-spacing:.14em;color:var(--ink)}
+.loader-sub{margin:8px 0 16px;color:var(--mut);font-size:13px;min-height:1.2em}
+#loaderbar{height:8px;background:#262a35;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+#loaderfill{height:100%;width:0;border-radius:999px;transition:width .3s ease;
+  background:linear-gradient(90deg,var(--accent),var(--accent2))}
+
+#bar strong{font-size:16px;letter-spacing:.06em}
+#bar .sub{color:var(--mut);font-size:12px}
+.sectionjump{background:#262a35;color:var(--ink);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;font-size:12px;max-width:240px;cursor:pointer}
+.sectionjump:focus{outline:none;border-color:var(--accent)}
+.sectionjump option{background:var(--panel);color:var(--ink)}
+.spacer{flex:1}
+.parts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.parts button{background:#262a35;color:var(--mut);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;cursor:pointer;font-size:13px}
+.parts button.on{background:var(--accent);color:#0c0f17;border-color:var(--accent);font-weight:600}
+.parts .preset{border-style:dashed}
+/* lane button + ▾ caret joined into one pill */
+.lanegrp{display:inline-flex}
+.parts .lanebtn{border-radius:999px 0 0 999px;border-right:none}
+.parts .lanecaret{border-radius:0 999px 999px 0;padding:5px 8px;font-size:11px}
+.parts .lanebtn.on + .lanecaret{background:var(--accent);color:#0c0f17;border-color:var(--accent)}
+.zoom{color:var(--mut);font-size:12px;display:flex;align-items:center;gap:6px}
+/* per-part dropdown menu (solo/mute, volume, instrument) */
+.lanemenu{position:absolute;z-index:60;min-width:190px;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:10px;box-shadow:0 10px 30px rgba(0,0,0,.55)}
+.lanemenu[hidden]{display:none}
+.lm-title{font-size:12px;font-weight:600;color:var(--ink);margin-bottom:8px}
+.lm-row{display:flex;gap:6px;margin-bottom:8px}
+.lm-row button{flex:1;background:#262a35;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:5px;cursor:pointer;font-size:12px}
+.lm-row button:hover{border-color:var(--accent)}
+.lm-vol{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mut);margin-bottom:8px}
+.lm-vol input{flex:1}
+.lm-vol .v{width:38px;text-align:right;font-variant-numeric:tabular-nums}
+.lanemenu select{width:100%;background:#262a35;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:5px}
+.dimbtn{background:#262a35;color:var(--mut);border:1px solid var(--line);border-radius:999px;
+  padding:5px 12px;cursor:pointer;font-size:13px}
+.dimbtn.on{background:var(--accent2);color:#0c0f17;border-color:var(--accent2);font-weight:600}
+/* faded ("ghosted") dimmed parts — staves AND their markings (dynamics, slurs, labels, brace…) */
+#ribbon .dim{opacity:.32}
+
+#status{padding:0;max-height:0;overflow:hidden;transition:.2s;background:#2a2410;
+  color:var(--accent2);border-bottom:1px solid var(--line)}
+#status.show{padding:8px 14px;max-height:140px}
+
+/* one system ("set of bars") fills the screen; a tall box highlights the current bar */
+#ribbon-wrap{height:calc(100% - 50px - 46px);overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:10px 14px}
+/* fixed-height frame sized to the MAX the system needs; the system is top-anchored via JS margin */
+#ribbon{position:relative;background:#faf8f2;border-radius:10px;padding-left:10px;padding-right:10px;
+  box-sizing:border-box;display:flex;align-items:flex-start;justify-content:center;overflow:hidden;
+  box-shadow:0 2px 14px rgba(0,0,0,.4)}
+#ribbon svg{display:block;height:auto}
+#ribbon{transform-origin:center top}   /* zoom preview scales from the top-centre */
+#box{position:absolute;top:0;height:0;left:0;width:0;pointer-events:none;z-index:2;
+  background:rgba(122,162,255,.16);border:2px solid rgba(122,162,255,.85);border-radius:4px;
+  box-shadow:0 0 10px rgba(122,162,255,.4);transition:left .12s ease,width .12s ease;opacity:0}
+#box.on{opacity:1}
+
+#transport{height:46px;display:flex;align-items:center;gap:12px;padding:0 14px;
+  background:var(--panel);border-top:1px solid var(--line)}
+#transport button{background:var(--accent);color:#0c0f17;border:0;border-radius:8px;
+  padding:8px 18px;font-weight:600;cursor:pointer}
+#transport button:disabled{opacity:.4;cursor:default}
+/* transport cluster: primary Play (accent) + secondary skip/locate buttons */
+.tgroup{display:flex;align-items:center;gap:6px}
+#transport .tbtn{background:#262a35;color:var(--ink);border:1px solid var(--line);
+  min-width:40px;padding:8px 11px;font-size:15px;font-weight:400;line-height:1}
+#transport .tbtn:hover:not(:disabled){border-color:var(--accent)}
+#transport #play{min-width:50px;font-size:15px}
+.time{color:var(--mut);font-variant-numeric:tabular-nums}
+.tempo{color:var(--mut);font-size:12px;display:flex;align-items:center;gap:6px;margin-left:8px}
+.tempo input{width:120px}

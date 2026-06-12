@@ -1,0 +1,13 @@
+# Large source assets the app does NOT load (kept locally, never deployed)
+source/*.mp3
+source/*.pdf
+source/*.mscz
+source/*.mid
+!source/practice.mid
+source/beethoven-*.mxl
+source/beethoven-*.musicxml
+source/PUT-SCORE-HERE.txt
+
+# personal / scratch
+*.text
+_probe.html

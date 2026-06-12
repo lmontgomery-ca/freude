@@ -4,6 +4,14 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
 <title>FREUDE — Ribbon (v2, notation-driven)</title>
+<!-- installable / offline PWA -->
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#1d1f27" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="FREUDE" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
 <link rel="stylesheet" href="styles.css?v=36" />
 <!-- Verovio: MusicXML -> SVG notation + timemap (note->time map for the cursor) -->
 <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
@@ -26,6 +34,7 @@
     <strong>FREUDE</strong><span class="sub">ribbon · notation-driven</span>
     <div class="parts" id="parts"><!-- part toggles injected here --></div>
     <div class="spacer"></div>
+    <button id="install" class="dimbtn" hidden title="Install FREUDE on this device for offline use">⬇&#xFE0E; Install</button>
     <button id="dimsolo" class="dimbtn" title="Fade the soloist staves so the voices stand out">Dim solo</button>
     <button id="dimpiano" class="dimbtn" title="Fade the piano staves so the voices stand out">Dim piano</button>
     <label class="zoom">zoom
@@ -73,6 +82,34 @@
     <div class="spacer"></div>
   </footer>
 
+  <!-- PWA: register the offline service worker + wire the Install button -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("sw.js").catch(function () {});
+      });
+    }
+    (function () {
+      var deferred = null;
+      var btn = document.getElementById("install");
+      window.addEventListener("beforeinstallprompt", function (e) {
+        e.preventDefault();
+        deferred = e;
+        if (btn) btn.hidden = false;
+      });
+      if (btn) btn.addEventListener("click", function () {
+        if (!deferred) return;
+        deferred.prompt();
+        deferred.userChoice.finally(function () {
+          deferred = null;
+          btn.hidden = true;
+        });
+      });
+      window.addEventListener("appinstalled", function () {
+        if (btn) btn.hidden = true;
+      });
+    })();
+  </script>
   <script src="app.js?v=36" defer></script>
 </body>
 </html>

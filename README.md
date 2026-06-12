@@ -24,6 +24,15 @@ python -m http.server 8770      # from this folder
 ```
 (First load pulls Verovio + the MIDI player from CDNs.)
 
+## Install / offline (PWA)
+The app is an installable Progressive Web App. Open the live site
+(https://lmontgomery-ca.github.io/freude/) once **online**, then either tap **⬇ Install** in
+the header or use your browser's *Install app* / *Add to Home Screen*. A service worker
+(`sw.js`) caches the app shell, the notation engine + player, and the score; the per-instrument
+soundfont and Verovio WASM are cached the first time they're used — so **after one online
+session, including playing audio once, it works fully offline**. Bump `CACHE` in `sw.js` to
+force-refresh cached assets.
+
 ## Rebuilding the audio
 `source/practice.mid` + `source/sync.json` are generated offline from the MusicXML — see
 [AUDIO_BUILD.md](AUDIO_BUILD.md). Regenerate after editing the score:

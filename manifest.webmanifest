@@ -1,0 +1,16 @@
+{
+  "name": "FREUDE — Choir Rehearsal Reader",
+  "short_name": "FREUDE",
+  "description": "Beethoven's 9th finale (An die Freude, SATB + piano) — per-voice rehearsal reader with notation, isolation, tempo and follow-cursor.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#14151a",
+  "theme_color": "#1d1f27",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

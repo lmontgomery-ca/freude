@@ -5,6 +5,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
   font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}   /* header / score / transport stack; score flexes */
 
 #bar{display:flex;align-items:center;gap:14px;padding:8px 14px;
   background:var(--panel);border-bottom:1px solid var(--line)}
@@ -60,7 +61,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 #status.show{padding:8px 14px;max-height:140px}
 
 /* one system ("set of bars") fills the screen; a tall box highlights the current bar */
-#ribbon-wrap{height:calc(100% - 50px - 46px);overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:10px 14px}
+#ribbon-wrap{flex:1 1 auto;min-height:0;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:10px 14px}
 /* fixed-height frame sized to the MAX the system needs; the system is top-anchored via JS margin */
 #ribbon{position:relative;background:#faf8f2;border-radius:10px;padding-left:10px;padding-right:10px;
   box-sizing:border-box;display:flex;align-items:flex-start;justify-content:center;overflow:hidden;
@@ -86,3 +87,23 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 .time{color:var(--mut);font-variant-numeric:tabular-nums}
 .tempo{color:var(--mut);font-size:12px;display:flex;align-items:center;gap:6px;margin-left:8px}
 .tempo input{width:120px}
+
+/* collapsible top bar + transport ------------------------------------------------- */
+.collapsebtn{background:transparent;border:1px solid var(--line);color:var(--mut);
+  border-radius:6px;padding:4px 9px;cursor:pointer;font-size:11px;line-height:1;margin-left:4px}
+.collapsebtn:hover{border-color:var(--accent);color:var(--ink)}
+/* override the accent transport-button styling for the footer's collapse toggle */
+#transport .collapsebtn{background:transparent;color:var(--mut);border:1px solid var(--line);
+  border-radius:6px;padding:4px 9px;font-weight:400}
+#transport .collapsebtn:hover{border-color:var(--accent);color:var(--ink)}
+body.bar-collapsed #bar{display:none}
+body.transport-collapsed #transport{display:none}
+/* slim tab that peeks at the screen edge to bring a hidden bar back */
+.edgehandle{position:fixed;left:50%;transform:translateX(-50%);z-index:55;display:none;
+  background:var(--panel);color:var(--mut);border:1px solid var(--line);cursor:pointer;
+  padding:2px 18px;font-size:11px;line-height:1.4;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+.edgehandle:hover{color:var(--ink);border-color:var(--accent)}
+#barexpand{top:0;border-top:none;border-radius:0 0 9px 9px}
+#transportexpand{bottom:0;border-bottom:none;border-radius:9px 9px 0 0}
+body.bar-collapsed #barexpand{display:block}
+body.transport-collapsed #transportexpand{display:block}

@@ -5,13 +5,13 @@
               magenta loads on demand, etc.) is cached the first time it's fetched, so
               after one online session — including playing audio once — the app works
               fully offline. Bump CACHE to force a refresh of everything. */
-const CACHE = "freude-v1";
+const CACHE = "freude-v2";
 
 // same-origin shell (exact query strings must match what index.html requests)
 const LOCAL = [
   "./",
   "./index.html",
-  "./styles.css?v=36",
+  "./styles.css?v=37",
   "./app.js?v=36",
   "./manifest.webmanifest",
   "./icon-192.png",

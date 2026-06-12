@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-title" content="FREUDE" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" href="icon-192.png" />
-<link rel="stylesheet" href="styles.css?v=36" />
+<link rel="stylesheet" href="styles.css?v=37" />
 <!-- Verovio: MusicXML -> SVG notation + timemap (note->time map for the cursor) -->
 <script src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js" defer></script>
 <!-- html-midi-player: plays the MIDI that Verovio generates from the same score -->
@@ -31,7 +31,6 @@
     </div>
   </div>
   <header id="bar">
-    <strong>FREUDE</strong><span class="sub">ribbon · notation-driven</span>
     <div class="parts" id="parts"><!-- part toggles injected here --></div>
     <div class="spacer"></div>
     <button id="install" class="dimbtn" hidden title="Install FREUDE on this device for offline use">⬇&#xFE0E; Install</button>
@@ -40,7 +39,12 @@
     <label class="zoom">zoom
       <input id="zoom" type="range" min="20" max="80" value="40" />
     </label>
+    <button id="barcollapse" class="collapsebtn" title="Hide the top bar">▲&#xFE0E;</button>
   </header>
+
+  <!-- slim tabs to restore a collapsed bar -->
+  <button id="barexpand" class="edgehandle" title="Show the top bar">▼&#xFE0E;</button>
+  <button id="transportexpand" class="edgehandle" title="Show the transport bar">▲&#xFE0E;</button>
 
   <!-- per-part dropdown (solo/mute, volume, instrument), positioned under the clicked part's caret -->
   <div id="lanemenu" class="lanemenu" hidden>
@@ -80,6 +84,7 @@
       <span id="tempopct" class="time">100%</span>
     </label>
     <div class="spacer"></div>
+    <button id="transportcollapse" class="collapsebtn" title="Hide the transport bar">▼&#xFE0E;</button>
   </footer>
 
   <!-- PWA: register the offline service worker + wire the Install button -->
@@ -135,6 +140,36 @@
       window.addEventListener("appinstalled", function () {
         if (btn) btn.hidden = true;
       });
+    })();
+  </script>
+  <!-- collapsible top bar + transport (state remembered across sessions) -->
+  <script>
+    (function () {
+      var KEY = "freude-collapsed";
+      function save() {
+        try {
+          localStorage.setItem(KEY, JSON.stringify({
+            bar: document.body.classList.contains("bar-collapsed"),
+            transport: document.body.classList.contains("transport-collapsed"),
+          }));
+        } catch (e) {}
+      }
+      try {
+        var s = JSON.parse(localStorage.getItem(KEY) || "{}");
+        if (s.bar) document.body.classList.add("bar-collapsed");
+        if (s.transport) document.body.classList.add("transport-collapsed");
+      } catch (e) {}
+      function wire(btnId, cls, on) {
+        var b = document.getElementById(btnId);
+        if (b) b.addEventListener("click", function () {
+          document.body.classList[on ? "add" : "remove"](cls);
+          save();
+        });
+      }
+      wire("barcollapse", "bar-collapsed", true);
+      wire("barexpand", "bar-collapsed", false);
+      wire("transportcollapse", "transport-collapsed", true);
+      wire("transportexpand", "transport-collapsed", false);
     })();
   </script>
   <script src="app.js?v=36" defer></script>

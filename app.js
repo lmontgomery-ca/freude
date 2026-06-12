@@ -456,32 +456,71 @@ function injectRehearsal(measureEl, letter) {
   const firstNote = measureEl.querySelector("note");
   if (firstNote) measureEl.insertBefore(dir, firstNote); else measureEl.appendChild(dir);
 }
+const BASS_REST_MIN = 4;   // a letter only after MORE THAN this many empty bass bars (>4 keeps "Deine Zauber", m775)
+const STEP_SEMI = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+/* the bass voice of a part = the substantial voice with the LOWEST mean pitch (robust to a stray
+ * divisi voice — e.g. Solo T&B has voices 1,2,3 where 3 is a single note). */
+function lowestVoice(partEl) {
+  const sum = {}, cnt = {};
+  partEl.querySelectorAll("note > pitch").forEach((pit) => {
+    const n = pit.parentNode;
+    const step = pit.querySelector("step")?.textContent.trim();
+    if (!(step in STEP_SEMI)) return;
+    const vt = n.querySelector("voice")?.textContent.trim() || "1";
+    const oct = parseInt(pit.querySelector("octave")?.textContent || "0", 10);
+    const al = pit.querySelector("alter");
+    const midi = (oct + 1) * 12 + STEP_SEMI[step] + (al ? Math.round(parseFloat(al.textContent)) : 0);
+    sum[vt] = (sum[vt] || 0) + midi; cnt[vt] = (cnt[vt] || 0) + 1;
+  });
+  let best = null, bestMean = Infinity;
+  for (const vt in cnt) {
+    if (cnt[vt] < 5) continue;                       // ignore stray/divisi voices
+    const mean = sum[vt] / cnt[vt];
+    if (mean < bestMean) { bestMean = mean; best = vt; }
+  }
+  return best;
+}
+/* every bass line: the lowest voice of each T&B vocal part (solo baritone P2 + choir bass P4) */
+function bassVoices() {
+  const out = [];
+  parts.forEach((p) => {
+    if (/pian|klav|keyb|organ/i.test(p.name)) return;
+    if (!/\bB\b|bass/i.test(p.name.replace(/&amp;/g, "&"))) return;   // part carries a bass (T & B)
+    const partEl = originalDoc.querySelector('part[id="' + p.id + '"]');
+    const voice = partEl && lowestVoice(partEl);
+    if (voice) out.push({ partId: p.id, voice });
+  });
+  return out;
+}
 function detectBassEntries() {
   const out = [];
-  const bassLane = lanes.find((l) => l.label === "B");      // choir bass section
-  if (!bassLane) return out;
-  const partEl = originalDoc.querySelector('part[id="' + bassLane.partId + '"]');
-  if (!partEl) return out;
-  const voice = bassLane.voice;
-  const measures = [...partEl.children].filter((c) => c.tagName === "measure");
-  const sings = measures.map((m) =>
-    [...m.querySelectorAll("note")].some((n) => {
-      const v = n.querySelector("voice");
-      return (v ? v.textContent.trim() : "1") === voice && n.querySelector("pitch") && !n.querySelector("rest");
-    })
-  );
+  const voices = bassVoices();
   const topPart = originalDoc.querySelector("part");
   const topMeasures = topPart ? [...topPart.children].filter((c) => c.tagName === "measure") : [];
-  let li = 0;
-  for (let i = 0; i < sings.length; i++) {
-    if (!sings[i] || (i !== 0 && sings[i - 1])) continue;   // sings now, didn't sing the previous bar
-    let rest = 0, j = i - 1;
-    while (j >= 0 && !sings[j]) { rest++; j--; }
-    if (rest <= 6) continue;                                // only a letter after MORE THAN six empty bass bars
-    const letter = bassLetter(li++);
-    out.push({ idx: i, num: measures[i].getAttribute("number"), letter });
+  if (!voices.length || !topMeasures.length) return out;
+  // collect entrance bars across BOTH bass voices: sings now, but rested > BASS_REST_MIN whole bars
+  const entrySet = new Set();
+  voices.forEach(({ partId, voice }) => {
+    const partEl = originalDoc.querySelector('part[id="' + partId + '"]');
+    if (!partEl) return;
+    const measures = [...partEl.children].filter((c) => c.tagName === "measure");
+    const sings = measures.map((m) =>
+      [...m.querySelectorAll("note")].some((n) => {
+        const v = n.querySelector("voice");
+        return (v ? v.textContent.trim() : "1") === voice && n.querySelector("pitch") && !n.querySelector("rest");
+      })
+    );
+    for (let i = 0; i < sings.length; i++) {
+      if (!sings[i] || (i !== 0 && sings[i - 1])) continue;
+      let rest = 0, j = i - 1; while (j >= 0 && !sings[j]) { rest++; j--; }
+      if (rest > BASS_REST_MIN) entrySet.add(i);
+    }
+  });
+  [...entrySet].sort((a, b) => a - b).forEach((i, k) => {     // letters A,B,C… in bar order
+    const letter = bassLetter(k);
+    out.push({ idx: i, num: topMeasures[i] ? topMeasures[i].getAttribute("number") : String(i), letter });
     if (topMeasures[i]) injectRehearsal(topMeasures[i], letter);
-  }
+  });
   return out;
 }
 

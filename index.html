@@ -87,7 +87,34 @@
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         navigator.serviceWorker.register("sw.js").catch(function () {});
+        // warm the soundfont cache once (online) so EVERY instrument plays offline
+        setTimeout(warmSoundfont, 5000);
+        window.addEventListener("online", warmSoundfont);
       });
+    }
+    // Pre-fetch every instrument's samples for this score (~21MB, 561 files) in the
+    // background. The service worker caches each opaque response, so after this completes
+    // all 8 instruments work fully offline at normal volume. Runs once; gated by a flag.
+    var SF_FLAG = "sf-warmed-freude-v1";
+    async function warmSoundfont() {
+      try {
+        if (!("serviceWorker" in navigator)) return;
+        if (localStorage.getItem(SF_FLAG)) return;
+        if (!navigator.onLine) return;
+        await navigator.serviceWorker.ready;
+        var list = await (await fetch("sf-precache.json")).json();
+        var i = 0;
+        async function pump() {
+          while (i < list.length) {
+            var u = list[i++];
+            try { await fetch(u, { mode: "no-cors" }); } catch (_) {}
+          }
+        }
+        var lanes = [];
+        for (var k = 0; k < 8; k++) lanes.push(pump()); // 8 parallel fetchers
+        await Promise.all(lanes);
+        localStorage.setItem(SF_FLAG, "1");
+      } catch (_) {}
     }
     (function () {
       var deferred = null;

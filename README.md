@@ -28,10 +28,17 @@ python -m http.server 8770      # from this folder
 The app is an installable Progressive Web App. Open the live site
 (https://lmontgomery-ca.github.io/freude/) once **online**, then either tap **⬇ Install** in
 the header or use your browser's *Install app* / *Add to Home Screen*. A service worker
-(`sw.js`) caches the app shell, the notation engine + player, and the score; the per-instrument
-soundfont and Verovio WASM are cached the first time they're used — so **after one online
-session, including playing audio once, it works fully offline**. Bump `CACHE` in `sw.js` to
-force-refresh cached assets.
+(`sw.js`) caches the app shell, the notation engine + player, and the score; the Verovio WASM is
+cached the first time it's used. On the first online load the app also **pre-warms the soundfont
+in the background** — every sample this score needs for all 8 instruments (the 69 pitches it uses
+× the 8 GM instruments ≈ 561 files / ~21 MB, listed in `sf-precache.json`) — so **after that
+completes, all instruments play fully offline at normal volume**. (Extreme per-part volume changes
+offline can land on an un-cached velocity layer until it's played online once.) Pre-warming is
+gated by a `localStorage` flag (`sf-warmed-freude-v1`); bump `CACHE` in `sw.js` and that flag to
+force a refresh. Regenerate `sf-precache.json` after changing the score:
+```
+python -c "import mido,json; BASE='https://storage.googleapis.com/magentadata/js/soundfonts/sgm_plus'; F=['acoustic_grand_piano','electric_piano_1','harpsichord','church_organ','acoustic_guitar_nylon','string_ensemble_1','choir_aahs','flute']; m=mido.MidiFile('source/practice.mid'); P=sorted({x.note for t in m.tracks for x in t if x.type=='note_on' and x.velocity>0}); u=[BASE+'/soundfont.json']+[BASE+'/'+f+'/instrument.json' for f in F]+[BASE+'/'+f+'/p'+str(p)+'_v79.mp3' for f in F for p in P]; json.dump(u,open('sf-precache.json','w'))"
+```
 
 ## Rebuilding the audio
 `source/practice.mid` + `source/sync.json` are generated offline from the MusicXML — see

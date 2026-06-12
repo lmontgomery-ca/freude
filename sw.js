@@ -16,6 +16,7 @@ const LOCAL = [
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
+  "./sf-precache.json",
   "./source/score.mxl",
   "./source/practice.mid",
   "./source/sync.json",
